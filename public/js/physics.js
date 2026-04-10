@@ -368,15 +368,44 @@ export function runApproachPattern(config) {
         return computeAndPush(px, py, heading, iasMs, 0, 0, phase);
     }
 
-    // Helper: push one step of turning flight.
-    // Bank is derived from ground speed and turn radius (same as orbit),
-    // then scaled by the ramp factor for smooth roll-in/roll-out.
-    function pushTurn(px, py, heading, iasMs, rampFactor, phase) {
-        const Vg = groundSpeedForHeading(iasMs, wind, heading);
-        // Derive bank from Vg and turn radius, scaled by ramp
-        const fullBank = bankAngleForTurn(Vg, r);
-        const bankRad = fullBank * rampFactor;
-        return computeAndPush(px, py, heading, iasMs, bankRad, r, phase);
+    // Generate a 90° arc with geometric positions on the circle.
+    // Same approach as the orbit: positions are constrained to the arc,
+    // bank angle is derived from what's needed to hold the ground track.
+    function generateArc(startX, startY, startHdg, iasStart, iasEnd, phase) {
+        // Turn center: perpendicular to heading, on the inside of the turn
+        const centerX = startX + r * (-dir * Math.cos(startHdg));
+        const centerY = startY + r * (dir * Math.sin(startHdg));
+
+        for (let i = 0; i < 90; i++) {
+            const hdg = startHdg - dir * i * dhdg;
+            const t = i / 90;
+            const iasMs = iasStart * (1 - t) + iasEnd * t;
+
+            // Geometric position on the arc (just like orbit positions on a circle)
+            const px = centerX + r * (dir * Math.cos(hdg));
+            const py = centerY + r * (-dir * Math.sin(hdg));
+
+            // Bank derived from ground speed and radius (same as orbit)
+            const Vg = groundSpeedForHeading(iasMs, wind, hdg);
+            const fullBank = bankAngleForTurn(Vg, r);
+
+            // Apply roll-in/roll-out ramp
+            const ramp = rampedBank(i, 90, 1.0);
+            const bankRad = fullBank * ramp;
+
+            computeAndPush(px, py, hdg, iasMs, bankRad, r, phase);
+
+            // dt from arc segment length and ground speed
+            const dt = Vg > 0.1 ? (dhdg * r / Vg) : 0.5;
+            results.dt.push(dt);
+            totalTime += dt;
+        }
+
+        // Return end position and heading
+        const endHdg = startHdg - dir * 90 * dhdg;
+        const endX = centerX + r * (dir * Math.cos(endHdg));
+        const endY = centerY + r * (-dir * Math.sin(endHdg));
+        return [endX, endY, endHdg];
     }
 
     // --- Phase 1: Downwind leg ---
@@ -402,23 +431,10 @@ export function runApproachPattern(config) {
         return maxBank;
     }
 
-    // --- Phase 2: Base turn (90°) ---
-    let curX, curY;
-    [curX, curY] = toWorld(-approachDist, patternWidth);
-    let curHeading = downwindHdg;
-
-    for (let i = 0; i < 90; i++) {
-        const ramp = rampedBank(i, 90, 1.0); // 0→1→0 ramp factor
-        const Vg = pushTurn(curX, curY, curHeading, IAS, ramp, 'turn');
-        const effectiveR = ramp > 0.01 ? r / ramp : r * 100; // larger radius during roll-in/out
-        const dt = effectiveR > 0.1 ? (dhdg * effectiveR / Vg) : 0.5;
-        const dist = Vg * dt;
-        curX += dist * Math.sin(curHeading);
-        curY += dist * Math.cos(curHeading);
-        curHeading -= dir * dhdg;
-        results.dt.push(dt);
-        totalTime += dt;
-    }
+    // --- Phase 2: Base turn (90° arc, geometric positions) ---
+    let curX, curY, curHeading;
+    const baseStart = toWorld(-approachDist, patternWidth);
+    [curX, curY, curHeading] = generateArc(baseStart[0], baseStart[1], downwindHdg, IAS, IAS, 'turn');
 
     // --- Phase 3: Base leg (if needed) ---
     // Maintain cruise speed through base — no deceleration yet
@@ -441,25 +457,9 @@ export function runApproachPattern(config) {
         curY = baseStartY + by * baseLegLen;
     }
 
-    // --- Phase 4: Final turn (90°) ---
-    // Slight deceleration during turn (cruise to ~90%), with bank ramp.
-    // Bank derived from Vg and turn radius (same as orbit), scaled by ramp.
-    curHeading = baseHdg;
-
-    for (let i = 0; i < 90; i++) {
-        const t = i / 90;
-        const iasMs = IAS * (1 - 0.1 * t);
-        const ramp = rampedBank(i, 90, 1.0);
-        const Vg = pushTurn(curX, curY, curHeading, iasMs, ramp, 'turn');
-        const effectiveR = ramp > 0.01 ? r / ramp : r * 100;
-        const dt = effectiveR > 0.1 ? (dhdg * effectiveR / Vg) : 0.5;
-        const dist = Vg * dt;
-        curX += dist * Math.sin(curHeading);
-        curY += dist * Math.cos(curHeading);
-        curHeading -= dir * dhdg;
-        results.dt.push(dt);
-        totalTime += dt;
-    }
+    // --- Phase 4: Final turn (90° arc, geometric positions) ---
+    // Slight deceleration during turn (cruise to ~90%)
+    [curX, curY, curHeading] = generateArc(curX, curY, baseHdg, IAS, IAS * 0.9, 'turn');
 
     // --- Phase 5: Final approach (straight to center, 3:1 profile) ---
     // Standard helicopter approach: GS(kt) = distance(m) / 9.14
