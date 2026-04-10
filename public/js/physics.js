@@ -46,6 +46,17 @@ export function groundSpeedFromIAS(iasMps, wind, psi, dir) {
     return h + Math.sqrt(discriminant);
 }
 
+// Solve for ground speed given IAS, wind, and flight heading.
+// General form: works for straight flight and turns.
+export function groundSpeedForHeading(iasMps, wind, heading) {
+    const tx = Math.sin(heading);
+    const ty = Math.cos(heading);
+    const h = tx * wind.x + ty * wind.y;
+    const discriminant = iasMps * iasMps - wind.magnitude * wind.magnitude + h * h;
+    if (discriminant < 0) return Math.max(0.5, h);
+    return h + Math.sqrt(discriminant);
+}
+
 // Bank angle required for a given ground speed and turn radius.
 export function bankAngleForTurn(groundSpeedMs, turnRadiusM) {
     return Math.atan((groundSpeedMs * groundSpeedMs) / (G * turnRadiusM));
@@ -294,8 +305,6 @@ export function runApproachPattern(config) {
     // Pattern turn radius from IAS at 25° bank
     let r = IAS * IAS / (G * Math.tan(degreesToRadians(25)));
     if (r * 2 > patternWidth) r = patternWidth / 2; // ensure turns fit
-    const turnBankRad = Math.atan(IAS * IAS / (G * r));
-
     // Headings
     const downwindHdg = H + Math.PI;
     const baseHdg = H + Math.PI - dir * Math.PI / 2; // perpendicular toward final course
@@ -328,33 +337,10 @@ export function runApproachPattern(config) {
     let totalTime = 0;
     const dhdg = degreesToRadians(1);
 
-    // Helper: push one step of straight flight
-    function pushStraight(px, py, heading, iasMs, phase) {
-        results.x.push(px);
-        results.y.push(py);
-        results.psi.push(heading);
-        results.groundTrackHeading.push(heading);
-        results.phase.push(phase);
-        results.ias.push(msToKnots(iasMs));
-        results.bankAngle.push(0);
-        results.loadFactors.push(1);
-        const tailwind = wind.x * Math.sin(heading) + wind.y * Math.cos(heading);
-        const Vg = Math.max(0.5, iasMs + tailwind);
-        results.groundSpeed.push(Vg);
-        results.radius.push(0);
-        const pwr = powerComponents({
-            weightN: W, airspeedMs: iasMs, bankAngleRad: 0,
-            rotor, airframe,
-            maxContinuousPowerKW: performance.maxContinuousPower,
-            vneKnots: performance.vne
-        });
-        results.power.push(pwr);
-        results.torque.push(torquePercent(pwr.total, performance.maxContinuousPower, rotor.omega));
-        return Vg;
-    }
+    // Shared power computation — same logic as orbit mode
+    function computeAndPush(px, py, heading, iasMs, bankRad, turnR, phase) {
+        const Vg = groundSpeedForHeading(iasMs, wind, heading);
 
-    // Helper: push one step of turning flight
-    function pushTurn(px, py, heading, iasMs, bankRad, phase) {
         results.x.push(px);
         results.y.push(py);
         results.psi.push(heading);
@@ -363,10 +349,9 @@ export function runApproachPattern(config) {
         results.ias.push(msToKnots(iasMs));
         results.bankAngle.push(bankRad);
         results.loadFactors.push(loadFactor(bankRad));
-        const tailwind = wind.x * Math.sin(heading) + wind.y * Math.cos(heading);
-        const Vg = Math.max(0.5, iasMs + tailwind);
         results.groundSpeed.push(Vg);
-        results.radius.push(r);
+        results.radius.push(turnR);
+
         const pwr = powerComponents({
             weightN: W, airspeedMs: iasMs, bankAngleRad: bankRad,
             rotor, airframe,
@@ -376,6 +361,22 @@ export function runApproachPattern(config) {
         results.power.push(pwr);
         results.torque.push(torquePercent(pwr.total, performance.maxContinuousPower, rotor.omega));
         return Vg;
+    }
+
+    // Helper: push one step of straight flight
+    function pushStraight(px, py, heading, iasMs, phase) {
+        return computeAndPush(px, py, heading, iasMs, 0, 0, phase);
+    }
+
+    // Helper: push one step of turning flight.
+    // Bank is derived from ground speed and turn radius (same as orbit),
+    // then scaled by the ramp factor for smooth roll-in/roll-out.
+    function pushTurn(px, py, heading, iasMs, rampFactor, phase) {
+        const Vg = groundSpeedForHeading(iasMs, wind, heading);
+        // Derive bank from Vg and turn radius, scaled by ramp
+        const fullBank = bankAngleForTurn(Vg, r);
+        const bankRad = fullBank * rampFactor;
+        return computeAndPush(px, py, heading, iasMs, bankRad, r, phase);
     }
 
     // --- Phase 1: Downwind leg ---
@@ -407,11 +408,10 @@ export function runApproachPattern(config) {
     let curHeading = downwindHdg;
 
     for (let i = 0; i < 90; i++) {
-        const bank = rampedBank(i, 90, turnBankRad);
-        const effectiveBank = Math.max(bank, degreesToRadians(2)); // avoid div-by-zero in radius calc
-        const Vg = pushTurn(curX, curY, curHeading, IAS, bank, 'turn');
-        const tr = IAS * IAS / (G * Math.tan(effectiveBank));
-        const dt = tr > 0.1 ? (dhdg * tr / Vg) : 0.5;
+        const ramp = rampedBank(i, 90, 1.0); // 0→1→0 ramp factor
+        const Vg = pushTurn(curX, curY, curHeading, IAS, ramp, 'turn');
+        const effectiveR = ramp > 0.01 ? r / ramp : r * 100; // larger radius during roll-in/out
+        const dt = effectiveR > 0.1 ? (dhdg * effectiveR / Vg) : 0.5;
         const dist = Vg * dt;
         curX += dist * Math.sin(curHeading);
         curY += dist * Math.cos(curHeading);
@@ -442,17 +442,17 @@ export function runApproachPattern(config) {
     }
 
     // --- Phase 4: Final turn (90°) ---
-    // Slight deceleration during turn (cruise to ~90%), with bank ramp
+    // Slight deceleration during turn (cruise to ~90%), with bank ramp.
+    // Bank derived from Vg and turn radius (same as orbit), scaled by ramp.
     curHeading = baseHdg;
 
     for (let i = 0; i < 90; i++) {
         const t = i / 90;
         const iasMs = IAS * (1 - 0.1 * t);
-        const bank = rampedBank(i, 90, turnBankRad);
-        const effectiveBank = Math.max(bank, degreesToRadians(2));
-        const Vg = pushTurn(curX, curY, curHeading, iasMs, bank, 'turn');
-        const tr = iasMs * iasMs / (G * Math.tan(effectiveBank));
-        const dt = tr > 0.1 ? (dhdg * tr / Vg) : 0.5;
+        const ramp = rampedBank(i, 90, 1.0);
+        const Vg = pushTurn(curX, curY, curHeading, iasMs, ramp, 'turn');
+        const effectiveR = ramp > 0.01 ? r / ramp : r * 100;
+        const dt = effectiveR > 0.1 ? (dhdg * effectiveR / Vg) : 0.5;
         const dist = Vg * dt;
         curX += dist * Math.sin(curHeading);
         curY += dist * Math.cos(curHeading);
