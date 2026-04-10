@@ -1,4 +1,4 @@
-import { getAllPresets } from './helicopterPresets.js';
+import { getAllPresets, getPreset } from './helicopterPresets.js';
 import { SimulationManager } from './simulationManager.js';
 import { drawScene } from './rendererCanvas.js';
 import { drawTorqueGauge, drawBankGauge, drawAirspeedGauge } from './rendererGauges.js';
@@ -11,6 +11,7 @@ const simCards = new Map(); // sim.id -> { card, gauges }
 const canvas        = document.getElementById('simulation-canvas');
 const sidebar       = document.getElementById('sim-sidebar');
 const presetSelect  = document.getElementById('helicopter-type');
+const weightInput   = document.getElementById('gross-weight');
 const headingInput  = document.getElementById('heading');
 const windDirInput  = document.getElementById('wind-direction');
 const windSpdInput  = document.getElementById('wind-speed');
@@ -29,6 +30,17 @@ function populatePresets() {
         opt.textContent = `${p.name}  (${p.category})`;
         presetSelect.appendChild(opt);
     }
+    // Set initial weight from first preset
+    updateWeightFromPreset();
+}
+
+// Update weight input when helicopter type changes
+function updateWeightFromPreset() {
+    const preset = getPreset(presetSelect.value);
+    if (!preset) return;
+    weightInput.value = preset.weight.typical;
+    weightInput.min = preset.weight.empty;
+    weightInput.max = preset.weight.maxGross;
 }
 
 // Read conditions from the setup panel
@@ -38,7 +50,8 @@ function readConditions() {
         windDirection: parseFloat(windDirInput.value) || 0,
         windSpeed:     parseFloat(windSpdInput.value) || 0,
         turnRadius:    parseFloat(radiusInput.value) || 500,
-        airspeed:      parseFloat(airspeedInput.value) || 60
+        airspeed:      parseFloat(airspeedInput.value) || 60,
+        weightLbs:     parseFloat(weightInput.value) || 16000
     };
 }
 
@@ -121,7 +134,7 @@ function updateChain(sim) {
         : `${summary.minGroundSpeedKnots.toFixed(0)}-${summary.maxGroundSpeedKnots.toFixed(0)}kt`;
 
     entry.chain.innerHTML =
-        `<span class="chain-label">IAS</span> ${summary.airspeedKnots}kt ` +
+        `<span class="chain-label">${summary.weightLbs.toLocaleString()}lbs</span> ` +
         `<span class="chain-arrow">\u2192</span> ` +
         `<span class="chain-label">GS</span> ${gsStr} ` +
         `<span class="chain-arrow">\u2192</span> ` +
@@ -160,6 +173,8 @@ manager.onUpdate = (simulations) => {
 };
 
 // Event handlers
+presetSelect.addEventListener('change', updateWeightFromPreset);
+
 addBtn.addEventListener('click', () => {
     const presetId = presetSelect.value;
     const conditions = readConditions();

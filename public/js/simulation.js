@@ -17,7 +17,7 @@ export class SimulationInstance {
 
     compute() {
         this.results = runFullOrbit({
-            weightLbs: this.preset.weight.typical,
+            weightLbs: this.conditions.weightLbs || this.preset.weight.typical,
             headingDeg: this.conditions.heading,
             windDirectionDeg: this.conditions.windDirection,
             windSpeedKnots: this.conditions.windSpeed,
@@ -65,15 +65,17 @@ export class SimulationInstance {
             minTorque: this.results.minTorque,
             maxTorque: this.results.maxTorque,
             airspeedKnots: this.conditions.airspeed,
+            weightLbs: this.conditions.weightLbs || this.preset.weight.typical,
             turnRadiusM: this.conditions.turnRadius,
             windSpeedKnots: this.conditions.windSpeed
         };
     }
 
     get label() {
+        const wt = this.conditions.weightLbs || this.preset.weight.typical;
         const wind = this.conditions.windSpeed > 0
-            ? `, Wind ${this.conditions.windSpeed}kt`
-            : ', No Wind';
-        return `${this.preset.name}${wind}`;
+            ? `, ${this.conditions.windSpeed}kt wind`
+            : '';
+        return `${this.preset.name} ${wt.toLocaleString()}lbs${wind}`;
     }
 }

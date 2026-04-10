@@ -48,19 +48,20 @@ function drawNeedle(ctx, cx, cy, r, angle, color) {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angle);
+    // Needle points along +X (canvas 0° = 3 o'clock), matching arc angle convention
     ctx.strokeStyle = color || '#ffffff';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(0, -(r * 0.75));
+    ctx.lineTo(r * 0.75, 0);
     ctx.stroke();
 
     // Needle tip
     ctx.fillStyle = color || '#ffffff';
     ctx.beginPath();
-    ctx.moveTo(0, -(r * 0.75));
-    ctx.lineTo(-2, -(r * 0.65));
-    ctx.lineTo(2, -(r * 0.65));
+    ctx.moveTo(r * 0.75, 0);
+    ctx.lineTo(r * 0.65, -2);
+    ctx.lineTo(r * 0.65, 2);
     ctx.closePath();
     ctx.fill();
 
