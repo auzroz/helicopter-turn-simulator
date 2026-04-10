@@ -103,9 +103,11 @@ function drawFlightPath(ctx, sim, cx, cy, scale) {
         ctx.strokeStyle = torqueColor(t, sim.color);
         ctx.lineWidth = 2;
 
-        // Dashed line during approach phase
+        // Dashed line during approach/turn phases
         if (isApproach && sim.results.phase[i] === 'approach') {
             ctx.setLineDash([4, 4]);
+        } else if (isApproach && sim.results.phase[i] === 'turn') {
+            ctx.setLineDash([8, 4]);
         } else {
             ctx.setLineDash([]);
         }
