@@ -277,8 +277,11 @@ export function runApproachPattern(config) {
     const H = degreesToRadians(approachHeadingDeg);
     const patternWidth = turnRadiusM;              // offset from final course to downwind
     const approachDist = approachDistanceM || 1000; // length of final approach
-    const terminalSpeed = knotsToMs(20);            // 20kt at the point
-    const DECEL_DIST = 800;                         // decelerate over last 800m max
+    // 3:1 approach profile (altitude/airspeed = 3) at ~8° approach angle:
+    // altitude(ft) = 3 × airspeed(kt)
+    // distance(m) = altitude(ft) × 0.3048 / tan(8°) = airspeed × 0.9144 / tan(8°)
+    // airspeed(kt) = distance(m) × tan(8°) / 0.9144 = distance / 6.5
+    const PROFILE_FACTOR = 6.5;  // meters per knot at 8° approach angle
 
     // Coordinate frame aligned with approach
     const ax = Math.sin(H), ay = Math.cos(H);     // along-axis (toward target)
@@ -445,36 +448,34 @@ export function runApproachPattern(config) {
         totalTime += dt;
     }
 
-    // --- Phase 5: Final approach (straight to center, decelerating) ---
-    // Deceleration from ~90% cruise to terminal over the last DECEL_DIST meters.
-    // If final is longer than DECEL_DIST, cruise first then decelerate.
-    // Target: 800m in ~30-45 seconds.
+    // --- Phase 5: Final approach (straight to center, 3:1 profile) ---
+    // Standard helicopter approach: GS(kt) = distance(m) / 9.14
+    // Speed is proportional to distance from the point, reaching 0 at the point.
+    // If the aircraft is faster than the profile at rollout, cruise until the
+    // profile catches up, then follow the profile to the point.
     const distToCenter = Math.sqrt(curX * curX + curY * curY);
     const finalSteps = Math.max(30, Math.round(distToCenter / 5));
     const finalStepLen = distToCenter / finalSteps;
-    const iasAtFinal = IAS * 0.9; // speed after final turn
-    const decelStart = Math.max(0, distToCenter - DECEL_DIST); // distance from curPos where decel begins
+    const iasAfterTurn = IAS * 0.9; // speed after final turn
 
     for (let i = 0; i < finalSteps; i++) {
         const t = i / finalSteps;
-        const distFromStart = distToCenter * t;
+        const distRemaining = distToCenter * (1 - t);
         const px = curX * (1 - t);
         const py = curY * (1 - t);
 
-        let iasMs;
-        if (distFromStart < decelStart) {
-            // Cruise portion before deceleration zone
-            iasMs = iasAtFinal;
-        } else {
-            // Deceleration zone: smooth decel over last DECEL_DIST meters
-            const dt2 = (distFromStart - decelStart) / (distToCenter - decelStart);
-            // Use sqrt profile: decelerates briskly at first, eases near the end
-            const blend = Math.sqrt(dt2);
-            iasMs = iasAtFinal * (1 - blend) + terminalSpeed * blend;
-        }
+        // 3:1 profile speed at this distance
+        const profileSpeedKt = distRemaining / PROFILE_FACTOR;
+        const profileSpeedMs = knotsToMs(profileSpeedKt);
+
+        // Use the lower of current approach speed and profile speed.
+        // Cruise until profile catches up, then follow profile to the point.
+        // Minimum 5kt (~2.6 m/s) to represent the final hover transition.
+        const minSpeed = knotsToMs(5);
+        const iasMs = Math.min(iasAfterTurn, Math.max(profileSpeedMs, minSpeed));
 
         const Vg = pushStraight(px, py, finalHdg, iasMs, 'final');
-        const dt = Vg > 0.1 ? (finalStepLen / Vg) : 1;
+        const dt = Vg > 0.5 ? (finalStepLen / Vg) : 0.5;
         results.dt.push(dt);
         totalTime += dt;
     }
