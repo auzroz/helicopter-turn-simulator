@@ -135,7 +135,7 @@ const PRESETS = [
             inducedPowerFactor: 1.15
         },
         performance: {
-            maxContinuousPower: 2230,
+            maxContinuousPower: 2480,      // 2x T700-GE-701C @ 1,662 SHP = 3,324 SHP = 2,480 kW
             vne: 193,
             typicalCruise: 150
         }
@@ -158,7 +158,7 @@ const PRESETS = [
             inducedPowerFactor: 1.15
         },
         performance: {
-            maxContinuousPower: 2230,      // same gearbox limit as UH-60L
+            maxContinuousPower: 2480,      // same engines/gearbox as UH-60L
             vne: 193,
             typicalCruise: 135
         }

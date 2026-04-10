@@ -3,6 +3,11 @@ import { lbsToNewtons, knotsToMs, msToKnots, degreesToRadians } from './utils.js
 const RHO = 1.225;   // air density kg/m^3  (sea level ISA)
 const G   = 9.81;    // gravitational acceleration m/s^2
 
+// Overhead factors applied to all helicopter types
+const TAIL_ROTOR_POWER_FRACTION = 0.10;  // tail rotor ≈ 10% of main rotor power
+const ACCESSORY_POWER_FRACTION  = 0.03;  // hydraulics, generators, etc. ≈ 3% of max continuous
+const TRANSMISSION_EFFICIENCY   = 0.975; // 2.5% gearbox losses
+
 // Compute wind vector components (m/s).
 // windDirection is the heading the wind is coming FROM (degrees true).
 export function windComponents(windSpeedKnots, windDirectionDeg) {
@@ -54,8 +59,10 @@ export function forwardInducedVelocity(vi0, airspeedMs) {
 }
 
 // Power components (watts) at a single point in the orbit.
+// Returns main rotor components AND total engine power required
+// (including tail rotor, accessories, and transmission losses).
 export function powerComponents(params) {
-    const { weightN, airspeedMs, bankAngleRad, rotor, airframe } = params;
+    const { weightN, airspeedMs, bankAngleRad, rotor, airframe, maxContinuousPowerKW } = params;
     const { radius, omega, solidity } = rotor;
     const { bladeProfileDragCoeff: Cd0, inducedPowerFactor: kFactor, flatPlateArea: Seq } = airframe;
 
@@ -69,17 +76,33 @@ export function powerComponents(params) {
     // Induced power: k * T * vi
     const induced = kFactor * thrust * vi;
 
-    // Profile power: (sigma * Cd0 / 8) * rho * A * Vtip³
+    // Profile power with advance ratio correction:
+    // Pp = Pp0 * (1 + 4.65 * mu²) where mu = V / (omega * R)
     const A = Math.PI * radius * radius;
     const vtip = omega * radius;
-    const profile = (solidity * Cd0 / 8) * RHO * A * Math.pow(vtip, 3);
+    const mu = airspeedMs / vtip;   // advance ratio
+    const profileHover = (solidity * Cd0 / 8) * RHO * A * Math.pow(vtip, 3);
+    const profile = profileHover * (1 + 4.65 * mu * mu);
 
     // Parasite power
     const parasite = 0.5 * RHO * Math.pow(airspeedMs, 3) * Seq;
 
-    const total = induced + profile + parasite;
+    // Main rotor total
+    const mainRotor = induced + profile + parasite;
 
-    return { induced, profile, parasite, total };
+    // Tail rotor power: ~10% of main rotor power
+    const tailRotor = TAIL_ROTOR_POWER_FRACTION * mainRotor;
+
+    // Accessories: ~3% of max continuous power (hydraulics, generators, etc.)
+    const accessories = ACCESSORY_POWER_FRACTION * (maxContinuousPowerKW || 0) * 1000;
+
+    // Total power before transmission losses
+    const subtotal = mainRotor + tailRotor + accessories;
+
+    // Engine output must overcome transmission losses
+    const total = subtotal / TRANSMISSION_EFFICIENCY;
+
+    return { induced, profile, parasite, mainRotor, tailRotor, accessories, total };
 }
 
 // Convert total power (watts) to torque percentage.
@@ -164,7 +187,8 @@ export function runFullOrbit(config) {
             airspeedMs: IAS,
             bankAngleRad: bank,
             rotor,
-            airframe
+            airframe,
+            maxContinuousPowerKW: performance.maxContinuousPower
         });
         results.power.push(pwr);
 
