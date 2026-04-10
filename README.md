@@ -1,64 +1,31 @@
-Example plain HTML site using GitLab Pages.
+# Helicopter Turn Simulator
 
-Learn more about GitLab Pages at https://pages.gitlab.io and the official
-documentation https://docs.gitlab.com/ce/user/project/pages/.
+A browser-based helicopter coordinated turn simulator that visualizes a helicopter flying a 360-degree circular turn while computing aerodynamic metrics in real time.
 
----
+## Live Demo
 
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
+[https://auzroz.github.io/helicopter-turn-simulator/](https://auzroz.github.io/helicopter-turn-simulator/)
 
-- [GitLab CI](#gitlab-ci)
-- [GitLab User or Group Pages](#gitlab-user-or-group-pages)
-- [Did you fork this project?](#did-you-fork-this-project)
-- [Troubleshooting](#troubleshooting)
+## Purpose
 
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+This simulator demonstrates the critical difference between a helicopter orbiting through the air mass versus performing a turn around a fixed ground point. When wind is present, maintaining a ground-referenced circular path requires constantly varying airspeed and — most importantly — significantly more power than a no-wind orbit. The simulator makes this increased power demand visible and quantifiable through torque percentage readouts.
 
-## GitLab CI
+## Features
 
-This project's static Pages are built by [GitLab CI][ci], following the steps
-defined in [`.gitlab-ci.yml`](.gitlab-ci.yml):
+- **6 helicopter presets** — R22, R44, Bell 206 JetRanger, Bell 407, AS350/H125, UH-60 Black Hawk
+- **Up to 4 simultaneous simulations** — Compare different helicopters or wind conditions side by side
+- **Torque as % of max continuous** — The key metric pilots monitor, shown on a circular gauge
+- **Linked parameter chain** — See how radius → bank angle → G-load → airspeed → torque cascade
+- **Color-coded flight path** — Green/yellow/red based on torque demand around the turn
+- **Animated helicopter silhouette** — Top-down view with spinning rotors matching blade count
 
-```
-image: busybox
+## Usage
 
-pages:
-  stage: deploy
-  script:
-  - echo 'Nothing to do...'
-  artifacts:
-    paths:
-    - public
-    expire_in: 1 day
-  rules:
-    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
-```
+1. Select a helicopter type from the dropdown
+2. Set flight parameters: heading, wind direction/speed, turn radius, and ground speed
+3. Click **Add Simulation** to start
+4. Add more simulations with different parameters to compare
 
-The above example expects to put all your HTML files in the `public/` directory.
+## Built With
 
-## GitLab User or Group Pages
-
-To use this project as your user/group website, you will need one additional
-step: just rename your project to `namespace.gitlab.io`, where `namespace` is
-your `username` or `groupname`. This can be done by navigating to your
-project's **Settings**.
-
-Read more about [user/group Pages][userpages] and [project Pages][projpages].
-
-## Did you fork this project?
-
-If you forked this project for your own use, please go to your project's
-**Settings** and remove the forking relationship, which won't be necessary
-unless you want to contribute back to the upstream project.
-
-## Troubleshooting
-
-1. CSS is missing! That means that you have wrongly set up the CSS URL in your
-   HTML files. Have a look at the [index.html] for an example.
-
-[ci]: https://about.gitlab.com/gitlab-ci/
-[index.html]: https://gitlab.com/pages/plain-html/blob/master/public/index.html
-[userpages]: https://docs.gitlab.com/ce/user/project/pages/introduction.html#user-or-group-pages
-[projpages]: https://docs.gitlab.com/ce/user/project/pages/introduction.html#project-pages
+Vanilla HTML, CSS, and JavaScript (ES modules). No frameworks or build tools required.
