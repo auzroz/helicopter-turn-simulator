@@ -1,4 +1,4 @@
-import { lbsToNewtons, knotsToMs, degreesToRadians, kWToWatts } from './utils.js';
+import { lbsToNewtons, knotsToMs, msToKnots, degreesToRadians } from './utils.js';
 
 const RHO = 1.225;   // air density kg/m^3  (sea level ISA)
 const G   = 9.81;    // gravitational acceleration m/s^2
@@ -7,31 +7,29 @@ const G   = 9.81;    // gravitational acceleration m/s^2
 // windDirection is the heading the wind is coming FROM (degrees true).
 export function windComponents(windSpeedKnots, windDirectionDeg) {
     const Vw = knotsToMs(windSpeedKnots);
-    // Wind coming FROM a direction means it blows TOWARD the opposite direction.
     const dirRad = degreesToRadians(windDirectionDeg);
     return {
         x: -Vw * Math.sin(dirRad),
-        y: -Vw * Math.cos(dirRad)
+        y: -Vw * Math.cos(dirRad),
+        magnitude: Vw
     };
 }
 
-// Airspeed vector at a given position angle (psi) around the orbit.
-// Returns { vx, vy, magnitude }.
-export function airspeedAtPosition(groundSpeedMs, psi, wind) {
-    // Ground velocity components (aircraft flying a circle, psi=0 is north/top)
-    const vgx = groundSpeedMs * Math.sin(psi);
-    const vgy = groundSpeedMs * Math.cos(psi);
+// Solve for ground speed at azimuth psi given constant IAS and wind.
+// The aircraft flies a circular ground track; ground velocity is tangent to circle.
+// Returns ground speed in m/s (positive), or 0 if IAS < crosswind component.
+export function groundSpeedFromIAS(iasMps, wind, psi) {
+    // Ground track tangent direction (CCW / left turn)
+    const tx = Math.cos(psi);
+    const ty = -Math.sin(psi);
 
-    // Airspeed = ground speed - wind (vector subtraction)
-    const vax = vgx - wind.x;
-    const vay = vgy - wind.y;
+    // Component of wind along the track direction
+    const h = tx * wind.x + ty * wind.y;
 
-    return {
-        x: vax,
-        y: vay,
-        magnitude: Math.sqrt(vax * vax + vay * vay),
-        heading: Math.atan2(vax, vay)
-    };
+    // Quadratic: Vg² - 2·h·Vg + (|wind|² - IAS²) = 0
+    const discriminant = iasMps * iasMps - wind.magnitude * wind.magnitude + h * h;
+    if (discriminant < 0) return Math.max(0, h); // IAS too low to maintain track
+    return h + Math.sqrt(discriminant);
 }
 
 // Bank angle required for a given ground speed and turn radius.
@@ -45,9 +43,9 @@ export function loadFactor(bankAngleRad) {
 }
 
 // Hover induced velocity (m/s).
-export function hoverInducedVelocity(weightN, rotorRadius) {
+export function hoverInducedVelocity(thrustN, rotorRadius) {
     const A = Math.PI * rotorRadius * rotorRadius;
-    return Math.sqrt(weightN / (2 * RHO * A));
+    return Math.sqrt(thrustN / (2 * RHO * A));
 }
 
 // Forward-flight induced velocity using Glauert approximation.
@@ -62,28 +60,38 @@ export function powerComponents(params) {
     const { bladeProfileDragCoeff: Cd0, inducedPowerFactor: kFactor, flatPlateArea: Seq } = airframe;
 
     const n = loadFactor(bankAngleRad);
-    const vi0 = hoverInducedVelocity(weightN, radius);
+    const thrust = weightN * n;
+
+    // Induced velocity accounts for increased thrust in the turn
+    const vi0 = hoverInducedVelocity(thrust, radius);
     const vi = forwardInducedVelocity(vi0, airspeedMs);
 
-    const induced    = kFactor * weightN * vi;
-    const profile    = (solidity * Cd0 * RHO * Math.pow(omega, 3) * Math.pow(radius, 3)) / 8;
-    const parasite   = 0.5 * RHO * Math.pow(airspeedMs, 3) * Seq;
-    const maneuvering = (n - 1) * induced;
+    // Induced power: k * T * vi
+    const induced = kFactor * thrust * vi;
 
-    const total = induced + profile + parasite + maneuvering;
+    // Profile power: (sigma * Cd0 / 8) * rho * A * Vtip³
+    const A = Math.PI * radius * radius;
+    const vtip = omega * radius;
+    const profile = (solidity * Cd0 / 8) * RHO * A * Math.pow(vtip, 3);
 
-    return { induced, profile, parasite, maneuvering, total };
+    // Parasite power
+    const parasite = 0.5 * RHO * Math.pow(airspeedMs, 3) * Seq;
+
+    const total = induced + profile + parasite;
+
+    return { induced, profile, parasite, total };
 }
 
 // Convert total power (watts) to torque percentage.
-// torque = power / omega, then percent of max available.
 export function torquePercent(powerWatts, maxContinuousPowerKW, rotorOmega) {
-    const maxTorque = kWToWatts(maxContinuousPowerKW) / rotorOmega;
+    const maxPowerW = maxContinuousPowerKW * 1000;
+    const maxTorque = maxPowerW / rotorOmega;
     const currentTorque = powerWatts / rotorOmega;
     return (currentTorque / maxTorque) * 100;
 }
 
-// Run a full 360-degree orbit simulation. Returns arrays of per-step data.
+// Run a full 360-degree orbit simulation.
+// IAS is constant; ground speed, bank angle, and power vary with wind.
 export function runFullOrbit(config) {
     const {
         weightLbs,
@@ -91,65 +99,69 @@ export function runFullOrbit(config) {
         windDirectionDeg,
         windSpeedKnots,
         turnRadiusM,
-        groundSpeedKnots,
+        airspeedKnots,
         rotor,
         airframe,
         performance
     } = config;
 
-    const W  = lbsToNewtons(weightLbs);
-    const Vg = knotsToMs(groundSpeedKnots);
+    const W   = lbsToNewtons(weightLbs);
+    const IAS = knotsToMs(airspeedKnots);
     const wind = windComponents(windSpeedKnots, windDirectionDeg);
-    const entryRad = degreesToRadians(headingDeg);
 
-    const omega = Vg / turnRadiusM;          // turn rate (rad/s)
-    const totalTime = (2 * Math.PI) / omega; // time for full orbit
+    // Entry azimuth: if the aircraft enters heading H (nav degrees),
+    // and ground track tangent heading at psi is (psi + 90°),
+    // then entry psi = H - 90° (in radians).
+    const entryPsi = degreesToRadians(headingDeg) - Math.PI / 2;
+
     const numSteps = 360;
-    const dt = totalTime / numSteps;
+    const dpsi = (2 * Math.PI) / numSteps;
 
     const results = {
         numSteps,
-        dt,
-        totalTime,
-        turnRate: omega,
+        dt: [],               // per-step time delta (seconds)
+        totalTime: 0,
+        turnRadiusM,
+        wind,
+        airspeedKnots,
         x: [],
         y: [],
         psi: [],
-        airspeed: [],
-        airspeedHeading: [],
-        bankAngle: [],
+        groundSpeed: [],      // m/s at each step
+        groundTrackHeading: [],
+        bankAngle: [],        // radians
         loadFactors: [],
         power: [],
-        torque: [],
-        groundSpeedMs: Vg,
-        turnRadiusM,
-        wind
+        torque: []
     };
 
-    const bank = bankAngleForTurn(Vg, turnRadiusM);
+    let totalTime = 0;
 
     for (let i = 0; i < numSteps; i++) {
-        const t = i * dt;
-        const psi = entryRad + omega * t;
+        const psi = entryPsi + i * dpsi;
 
         // Position on ground circle
         results.x.push(turnRadiusM * Math.sin(psi));
         results.y.push(turnRadiusM * Math.cos(psi));
         results.psi.push(psi);
 
-        // Airspeed at this position
-        const air = airspeedAtPosition(Vg, psi, wind);
-        results.airspeed.push(air.magnitude);
-        results.airspeedHeading.push(air.heading);
+        // Ground track heading (nav convention: CW from north)
+        // Tangent direction (cos(psi), -sin(psi)) → heading = atan2(cos(psi), -sin(psi))
+        results.groundTrackHeading.push(Math.atan2(Math.cos(psi), -Math.sin(psi)));
 
-        // Bank angle (constant for now — see note in plan about variable bank)
+        // Ground speed from constant IAS + wind
+        const Vg = groundSpeedFromIAS(IAS, wind, psi);
+        results.groundSpeed.push(Vg);
+
+        // Bank angle varies with ground speed
+        const bank = bankAngleForTurn(Vg, turnRadiusM);
         results.bankAngle.push(bank);
         results.loadFactors.push(loadFactor(bank));
 
-        // Power
+        // Power computed using the constant IAS (aero forces depend on airspeed)
         const pwr = powerComponents({
             weightN: W,
-            airspeedMs: air.magnitude,
+            airspeedMs: IAS,
             bankAngleRad: bank,
             rotor,
             airframe
@@ -160,11 +172,21 @@ export function runFullOrbit(config) {
         results.torque.push(
             torquePercent(pwr.total, performance.maxContinuousPower, rotor.omega)
         );
+
+        // Time for this angular step: dt = dpsi * R / Vg
+        const dt = Vg > 0.1 ? (dpsi * turnRadiusM / Vg) : 1;
+        results.dt.push(dt);
+        totalTime += dt;
     }
 
+    results.totalTime = totalTime;
+
     // Summary stats
-    results.minAirspeedKnots = Math.min(...results.airspeed) / 0.514444;
-    results.maxAirspeedKnots = Math.max(...results.airspeed) / 0.514444;
+    const banksDeg = results.bankAngle.map(b => b * 180 / Math.PI);
+    results.minBankDeg = Math.min(...banksDeg);
+    results.maxBankDeg = Math.max(...banksDeg);
+    results.minGroundSpeedKnots = msToKnots(Math.min(...results.groundSpeed));
+    results.maxGroundSpeedKnots = msToKnots(Math.max(...results.groundSpeed));
     results.minTorque = Math.min(...results.torque);
     results.maxTorque = Math.max(...results.torque);
 

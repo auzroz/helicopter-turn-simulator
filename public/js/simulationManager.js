@@ -41,14 +41,16 @@ export class SimulationManager {
             const elapsed = (timestamp - this.lastTimestamp) / 1000; // seconds
             this.lastTimestamp = timestamp;
 
-            // Advance each simulation by elapsed time
+            // Advance each simulation by elapsed time, using per-step dt
+            // so the helicopter moves faster downwind and slower upwind
             for (const sim of this.simulations) {
                 if (!sim.results || !sim.isRunning) continue;
                 let acc = this.accumulators.get(sim.id) + elapsed;
-                const dt = sim.results.dt;
-                while (acc >= dt) {
+                while (true) {
+                    const stepDt = sim.results.dt[sim.currentStep];
+                    if (acc < stepDt) break;
+                    acc -= stepDt;
                     sim.step();
-                    acc -= dt;
                 }
                 this.accumulators.set(sim.id, acc);
             }

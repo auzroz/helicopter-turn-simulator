@@ -118,8 +118,10 @@ function drawHelicopter(ctx, sim, cx, cy, scale) {
 
     ctx.save();
     ctx.translate(sx, sy);
-    // Heading: 0=north=up. Canvas 0 angle is right. Rotate so north points up.
-    ctx.rotate(-state.heading + Math.PI / 2);
+    // Ground track heading (nav convention: 0=north, CW positive).
+    // Canvas: 0 angle = right/east, CW positive.
+    // Convert: canvas_angle = heading - PI/2
+    ctx.rotate(state.groundTrackHeading - Math.PI / 2);
 
     const size = 14;
 

@@ -15,7 +15,7 @@ const headingInput  = document.getElementById('heading');
 const windDirInput  = document.getElementById('wind-direction');
 const windSpdInput  = document.getElementById('wind-speed');
 const radiusInput   = document.getElementById('turn-radius');
-const gndSpdInput   = document.getElementById('ground-speed');
+const airspeedInput = document.getElementById('airspeed');
 const addBtn        = document.getElementById('add-simulation');
 const clearBtn      = document.getElementById('clear-all');
 const placeholder   = document.getElementById('sidebar-placeholder');
@@ -38,7 +38,7 @@ function readConditions() {
         windDirection: parseFloat(windDirInput.value) || 0,
         windSpeed:     parseFloat(windSpdInput.value) || 0,
         turnRadius:    parseFloat(radiusInput.value) || 500,
-        groundSpeed:   parseFloat(gndSpdInput.value) || 50
+        airspeed:      parseFloat(airspeedInput.value) || 60
     };
 }
 
@@ -99,7 +99,7 @@ function updateSimCard(sim) {
 
     drawBankGauge(entry.bankCanvas, state.bankAngleDeg, sim.color);
     drawTorqueGauge(entry.torqueCanvas, state.torquePercent, sim.color);
-    drawAirspeedGauge(entry.iasCanvas, state.airspeedKnots, sim.preset.performance.vne, sim.color);
+    drawAirspeedGauge(entry.iasCanvas, state.groundSpeedKnots, sim.preset.performance.vne, sim.color);
 }
 
 function updateChain(sim) {
@@ -112,14 +112,20 @@ function updateChain(sim) {
         ? ' <span class="chain-warn">EXCEEDS MAX</span>'
         : '';
 
+    const bankStr = summary.minBankDeg === summary.maxBankDeg
+        ? `${summary.minBankDeg.toFixed(1)}\u00b0`
+        : `${summary.minBankDeg.toFixed(1)}-${summary.maxBankDeg.toFixed(1)}\u00b0`;
+
+    const gsStr = summary.minGroundSpeedKnots === summary.maxGroundSpeedKnots
+        ? `${summary.minGroundSpeedKnots.toFixed(0)}kt`
+        : `${summary.minGroundSpeedKnots.toFixed(0)}-${summary.maxGroundSpeedKnots.toFixed(0)}kt`;
+
     entry.chain.innerHTML =
-        `<span class="chain-label">Radius</span> ${summary.turnRadiusM}m ` +
+        `<span class="chain-label">IAS</span> ${summary.airspeedKnots}kt ` +
         `<span class="chain-arrow">\u2192</span> ` +
-        `<span class="chain-label">Bank</span> ${summary.bankAngleDeg.toFixed(1)}\u00b0 ` +
+        `<span class="chain-label">GS</span> ${gsStr} ` +
         `<span class="chain-arrow">\u2192</span> ` +
-        `<span class="chain-label">G-Load</span> ${summary.loadFactor.toFixed(2)} ` +
-        `<span class="chain-arrow">\u2192</span> ` +
-        `<span class="chain-label">IAS</span> ${summary.minAirspeedKnots.toFixed(0)}-${summary.maxAirspeedKnots.toFixed(0)}kt ` +
+        `<span class="chain-label">Bank</span> ${bankStr} ` +
         `<span class="chain-arrow">\u2192</span> ` +
         `<span class="chain-label">Torque</span> ${summary.minTorque.toFixed(1)}-${summary.maxTorque.toFixed(1)}%` +
         torqueWarn;

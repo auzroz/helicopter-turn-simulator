@@ -179,7 +179,7 @@ export function drawAirspeedGauge(canvas, airspeedKnots, vne, simColor) {
     const min = 0;
     const max = Math.ceil(vne / 20) * 20 + 20; // round up to nice number above Vne
 
-    drawGaugeBase(ctx, cx, cy, r, 'IAS kt');
+    drawGaugeBase(ctx, cx, cy, r, 'GS kt');
 
     drawColorArc(ctx, cx, cy, r, min, max, [
         { from: 0,          to: vne * 0.9, color: '#2ecc71' },

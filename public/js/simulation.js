@@ -22,7 +22,7 @@ export class SimulationInstance {
             windDirectionDeg: this.conditions.windDirection,
             windSpeedKnots: this.conditions.windSpeed,
             turnRadiusM: this.conditions.turnRadius,
-            groundSpeedKnots: this.conditions.groundSpeed,
+            airspeedKnots: this.conditions.airspeed,
             rotor: this.preset.rotor,
             airframe: this.preset.airframe,
             performance: this.preset.performance
@@ -43,10 +43,11 @@ export class SimulationInstance {
         return {
             x: this.results.x[i],
             y: this.results.y[i],
-            heading: this.results.airspeedHeading[i],
+            groundTrackHeading: this.results.groundTrackHeading[i],
             psi: this.results.psi[i],
             bankAngleDeg: radiansToDegrees(this.results.bankAngle[i]),
-            airspeedKnots: msToKnots(this.results.airspeed[i]),
+            groundSpeedKnots: msToKnots(this.results.groundSpeed[i]),
+            airspeedKnots: this.results.airspeedKnots,
             torquePercent: this.results.torque[i],
             powerTotal: this.results.power[i].total,
             powerComponents: this.results.power[i],
@@ -57,13 +58,13 @@ export class SimulationInstance {
     getSummary() {
         if (!this.results) return null;
         return {
-            bankAngleDeg: radiansToDegrees(this.results.bankAngle[0]),
-            loadFactor: this.results.loadFactors[0],
-            minAirspeedKnots: this.results.minAirspeedKnots,
-            maxAirspeedKnots: this.results.maxAirspeedKnots,
+            minBankDeg: this.results.minBankDeg,
+            maxBankDeg: this.results.maxBankDeg,
+            minGroundSpeedKnots: this.results.minGroundSpeedKnots,
+            maxGroundSpeedKnots: this.results.maxGroundSpeedKnots,
             minTorque: this.results.minTorque,
             maxTorque: this.results.maxTorque,
-            groundSpeedKnots: this.conditions.groundSpeed,
+            airspeedKnots: this.conditions.airspeed,
             turnRadiusM: this.conditions.turnRadius,
             windSpeedKnots: this.conditions.windSpeed
         };
