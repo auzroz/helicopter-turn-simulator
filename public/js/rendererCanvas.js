@@ -13,15 +13,19 @@ export function setupCanvas(canvas) {
 
 // Compute a uniform scale that fits all simulations on the canvas.
 export function computeScale(simulations, canvasWidth, canvasHeight) {
-    let maxRadius = 100;
+    let maxExtent = 100;
     for (const sim of simulations) {
         if (sim.results) {
-            maxRadius = Math.max(maxRadius, sim.results.turnRadiusM);
+            // Use actual path bounding box for approach patterns
+            const xs = sim.results.x, ys = sim.results.y;
+            for (let i = 0; i < xs.length; i++) {
+                maxExtent = Math.max(maxExtent, Math.abs(xs[i]), Math.abs(ys[i]));
+            }
         }
     }
     const padding = 60;
     const size = Math.min(canvasWidth, canvasHeight);
-    return (size / 2 - padding) / maxRadius;
+    return (size / 2 - padding) / maxExtent;
 }
 
 // Draw the full scene: compass, wind, flight paths, helicopters.
@@ -103,11 +107,18 @@ function drawFlightPath(ctx, sim, cx, cy, scale) {
         ctx.strokeStyle = torqueColor(t, sim.color);
         ctx.lineWidth = 2;
 
-        // Dashed line during approach/turn phases
-        if (isApproach && sim.results.phase[i] === 'approach') {
-            ctx.setLineDash([4, 4]);
-        } else if (isApproach && sim.results.phase[i] === 'turn') {
-            ctx.setLineDash([8, 4]);
+        // Line style varies by phase
+        if (isApproach) {
+            const ph = sim.results.phase[i];
+            if (ph === 'final' || ph === 'approach') {
+                ctx.setLineDash([4, 4]);
+            } else if (ph === 'turn') {
+                ctx.setLineDash([8, 4]);
+            } else if (ph === 'base') {
+                ctx.setLineDash([6, 3]);
+            } else {
+                ctx.setLineDash([]); // downwind, orbit
+            }
         } else {
             ctx.setLineDash([]);
         }
