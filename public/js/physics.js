@@ -277,7 +277,8 @@ export function runApproachPattern(config) {
     const H = degreesToRadians(approachHeadingDeg);
     const patternWidth = turnRadiusM;              // offset from final course to downwind
     const approachDist = approachDistanceM || 1000; // length of final approach
-    const terminalSpeed = knotsToMs(10);
+    const terminalSpeed = knotsToMs(20);            // 20kt at the point
+    const DECEL_DIST = 800;                         // decelerate over last 800m max
 
     // Coordinate frame aligned with approach
     const ax = Math.sin(H), ay = Math.cos(H);     // along-axis (toward target)
@@ -406,20 +407,18 @@ export function runApproachPattern(config) {
     }
 
     // --- Phase 3: Base leg (if needed) ---
+    // Maintain cruise speed through base — no deceleration yet
     if (baseLegLen > 0) {
         const baseSteps = Math.max(10, Math.round(baseLegLen / 5));
         const baseStepLen = baseLegLen / baseSteps;
         const [baseStartX, baseStartY] = [curX, curY];
-        // Base direction unit vector
         const bx = Math.sin(baseHdg), by = Math.cos(baseHdg);
 
         for (let i = 0; i < baseSteps; i++) {
             const t = i / baseSteps;
             const px = baseStartX + bx * baseLegLen * t;
             const py = baseStartY + by * baseLegLen * t;
-            // Begin slowing on base
-            const iasMs = IAS * (1 - 0.15 * t);
-            const Vg = pushStraight(px, py, baseHdg, iasMs, 'base');
+            const Vg = pushStraight(px, py, baseHdg, IAS, 'base');
             const dt = Vg > 0.1 ? (baseStepLen / Vg) : 1;
             results.dt.push(dt);
             totalTime += dt;
@@ -429,12 +428,12 @@ export function runApproachPattern(config) {
     }
 
     // --- Phase 4: Final turn (90°) ---
+    // Slight deceleration during turn (cruise to ~90%)
     curHeading = baseHdg;
-    const iasAtFinalTurn = baseLegLen > 0 ? IAS * 0.85 : IAS;
 
     for (let i = 0; i < 90; i++) {
         const t = i / 90;
-        const iasMs = iasAtFinalTurn * (1 - 0.1 * t);
+        const iasMs = IAS * (1 - 0.1 * t);
         const Vg = pushTurn(curX, curY, curHeading, iasMs, turnBankRad, 'turn');
         const tr = iasMs * iasMs / (G * Math.tan(turnBankRad));
         const dt = tr > 0.1 ? (dhdg * tr / Vg) : 0.5;
@@ -447,16 +446,33 @@ export function runApproachPattern(config) {
     }
 
     // --- Phase 5: Final approach (straight to center, decelerating) ---
+    // Deceleration from ~90% cruise to terminal over the last DECEL_DIST meters.
+    // If final is longer than DECEL_DIST, cruise first then decelerate.
+    // Target: 800m in ~30-45 seconds.
     const distToCenter = Math.sqrt(curX * curX + curY * curY);
-    const finalSteps = Math.max(30, Math.round(distToCenter / 3));
+    const finalSteps = Math.max(30, Math.round(distToCenter / 5));
     const finalStepLen = distToCenter / finalSteps;
-    const iasAtFinal = baseLegLen > 0 ? IAS * 0.75 : IAS * 0.85;
+    const iasAtFinal = IAS * 0.9; // speed after final turn
+    const decelStart = Math.max(0, distToCenter - DECEL_DIST); // distance from curPos where decel begins
 
     for (let i = 0; i < finalSteps; i++) {
         const t = i / finalSteps;
+        const distFromStart = distToCenter * t;
         const px = curX * (1 - t);
         const py = curY * (1 - t);
-        const iasMs = iasAtFinal * (1 - t) + terminalSpeed * t;
+
+        let iasMs;
+        if (distFromStart < decelStart) {
+            // Cruise portion before deceleration zone
+            iasMs = iasAtFinal;
+        } else {
+            // Deceleration zone: smooth decel over last DECEL_DIST meters
+            const dt2 = (distFromStart - decelStart) / (distToCenter - decelStart);
+            // Use sqrt profile: decelerates briskly at first, eases near the end
+            const blend = Math.sqrt(dt2);
+            iasMs = iasAtFinal * (1 - blend) + terminalSpeed * blend;
+        }
+
         const Vg = pushStraight(px, py, finalHdg, iasMs, 'final');
         const dt = Vg > 0.1 ? (finalStepLen / Vg) : 1;
         results.dt.push(dt);
