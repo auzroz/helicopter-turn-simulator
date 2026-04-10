@@ -392,14 +392,25 @@ export function runApproachPattern(config) {
         totalTime += dt;
     }
 
+    // Bank angle ramp: gradual roll-in over first RAMP degrees,
+    // full bank in the middle, gradual roll-out over last RAMP degrees.
+    const RAMP_DEG = 15;
+    function rampedBank(step, totalSteps, maxBank) {
+        if (step < RAMP_DEG) return maxBank * (step / RAMP_DEG);
+        if (step > totalSteps - RAMP_DEG) return maxBank * ((totalSteps - step) / RAMP_DEG);
+        return maxBank;
+    }
+
     // --- Phase 2: Base turn (90°) ---
     let curX, curY;
     [curX, curY] = toWorld(-approachDist, patternWidth);
     let curHeading = downwindHdg;
 
     for (let i = 0; i < 90; i++) {
-        const Vg = pushTurn(curX, curY, curHeading, IAS, turnBankRad, 'turn');
-        const tr = IAS * IAS / (G * Math.tan(turnBankRad));
+        const bank = rampedBank(i, 90, turnBankRad);
+        const effectiveBank = Math.max(bank, degreesToRadians(2)); // avoid div-by-zero in radius calc
+        const Vg = pushTurn(curX, curY, curHeading, IAS, bank, 'turn');
+        const tr = IAS * IAS / (G * Math.tan(effectiveBank));
         const dt = tr > 0.1 ? (dhdg * tr / Vg) : 0.5;
         const dist = Vg * dt;
         curX += dist * Math.sin(curHeading);
@@ -431,14 +442,16 @@ export function runApproachPattern(config) {
     }
 
     // --- Phase 4: Final turn (90°) ---
-    // Slight deceleration during turn (cruise to ~90%)
+    // Slight deceleration during turn (cruise to ~90%), with bank ramp
     curHeading = baseHdg;
 
     for (let i = 0; i < 90; i++) {
         const t = i / 90;
         const iasMs = IAS * (1 - 0.1 * t);
-        const Vg = pushTurn(curX, curY, curHeading, iasMs, turnBankRad, 'turn');
-        const tr = iasMs * iasMs / (G * Math.tan(turnBankRad));
+        const bank = rampedBank(i, 90, turnBankRad);
+        const effectiveBank = Math.max(bank, degreesToRadians(2));
+        const Vg = pushTurn(curX, curY, curHeading, iasMs, bank, 'turn');
+        const tr = iasMs * iasMs / (G * Math.tan(effectiveBank));
         const dt = tr > 0.1 ? (dhdg * tr / Vg) : 0.5;
         const dist = Vg * dt;
         curX += dist * Math.sin(curHeading);
