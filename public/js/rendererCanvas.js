@@ -197,9 +197,10 @@ function drawWindArrow(ctx, sim, width, height) {
     ctx.arc(0, 0, 35, 0, Math.PI * 2);
     ctx.fill();
 
-    // Arrow shaft — points in direction wind blows toward
-    // On canvas: +y is down, but wind.y is north-positive. So flip y.
-    ctx.rotate(Math.atan2(wind.x, -wind.y));
+    // Arrow shaft — points in direction wind blows toward.
+    // Canvas rotation matrix: x' = -r*sin(θ), y' = r*cos(θ) for point (0,r).
+    // To point arrowhead toward (wind.x, -wind.y) on canvas, negate wind.x in atan2.
+    ctx.rotate(Math.atan2(-wind.x, -wind.y));
     ctx.strokeStyle = '#00ccff';
     ctx.lineWidth = 2;
     ctx.beginPath();
