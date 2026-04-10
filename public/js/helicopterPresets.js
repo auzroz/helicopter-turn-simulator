@@ -121,7 +121,7 @@ const PRESETS = [
         id: 'uh60',
         name: 'UH-60 Black Hawk',
         category: 'Heavy Turbine',
-        weight: { empty: 11516, maxGross: 22000, typical: 16000 },
+        weight: { empty: 11284, maxGross: 22000, typical: 16000 },
         rotor: {
             radius: 8.18,
             bladeCount: 4,
@@ -130,8 +130,8 @@ const PRESETS = [
             chord: 0.527
         },
         airframe: {
-            flatPlateArea: 3.5,
-            bladeProfileDragCoeff: 0.012,
+            flatPlateArea: 3.25,           // 35 ft² per NASA/CAMRAD II flight-test correlation
+            bladeProfileDragCoeff: 0.008,  // SC1095/SC1094R8 supercritical airfoils
             inducedPowerFactor: 1.15
         },
         performance: {
