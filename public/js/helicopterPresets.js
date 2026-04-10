@@ -139,6 +139,29 @@ const PRESETS = [
             vne: 193,
             typicalCruise: 150
         }
+    },
+    {
+        id: 'hh60',
+        name: 'HH-60G Pave Hawk',
+        category: 'Heavy Turbine (CSAR)',
+        weight: { empty: 11500, maxGross: 22000, typical: 19000 },
+        rotor: {
+            radius: 8.18,
+            bladeCount: 4,
+            rpm: 258,
+            solidity: 0.0826,
+            chord: 0.527
+        },
+        airframe: {
+            flatPlateArea: 3.9,            // ~42 ft²; probe, FLIR, hoist, antennas, countermeasures
+            bladeProfileDragCoeff: 0.008,  // SC1095/SC1094R8 (same rotor as UH-60)
+            inducedPowerFactor: 1.15
+        },
+        performance: {
+            maxContinuousPower: 2230,      // same gearbox limit as UH-60L
+            vne: 193,
+            typicalCruise: 135
+        }
     }
 ];
 
