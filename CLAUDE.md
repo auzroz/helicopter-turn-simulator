@@ -30,4 +30,4 @@ Up to 4 simulations can run simultaneously for comparison (e.g., different wind 
 - `public/js/rendererCanvas.js` — Flight path + helicopter silhouette rendering
 - `public/js/rendererGauges.js` — Circular dial gauges (bank, torque, airspeed)
 - `public/js/utils.js` — Unit conversions, math helpers
-- `.gitlab-ci.yml` — GitLab Pages deployment config
+- `.github/workflows/deploy.yml` — GitHub Pages deployment workflow
