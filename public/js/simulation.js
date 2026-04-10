@@ -1,0 +1,78 @@
+import { getPreset } from './helicopterPresets.js';
+import { runFullOrbit } from './physics.js';
+import { msToKnots, radiansToDegrees } from './utils.js';
+
+let nextId = 1;
+
+export class SimulationInstance {
+    constructor(presetId, conditions, color) {
+        this.id = nextId++;
+        this.preset = getPreset(presetId);
+        this.conditions = { ...conditions };
+        this.results = null;
+        this.currentStep = 0;
+        this.color = color;
+        this.isRunning = false;
+    }
+
+    compute() {
+        this.results = runFullOrbit({
+            weightLbs: this.preset.weight.typical,
+            headingDeg: this.conditions.heading,
+            windDirectionDeg: this.conditions.windDirection,
+            windSpeedKnots: this.conditions.windSpeed,
+            turnRadiusM: this.conditions.turnRadius,
+            groundSpeedKnots: this.conditions.groundSpeed,
+            rotor: this.preset.rotor,
+            airframe: this.preset.airframe,
+            performance: this.preset.performance
+        });
+        this.currentStep = 0;
+        this.isRunning = true;
+    }
+
+    step() {
+        if (!this.results) return null;
+        this.currentStep = (this.currentStep + 1) % this.results.numSteps;
+        return this.getCurrentState();
+    }
+
+    getCurrentState() {
+        if (!this.results) return null;
+        const i = this.currentStep;
+        return {
+            x: this.results.x[i],
+            y: this.results.y[i],
+            heading: this.results.airspeedHeading[i],
+            psi: this.results.psi[i],
+            bankAngleDeg: radiansToDegrees(this.results.bankAngle[i]),
+            airspeedKnots: msToKnots(this.results.airspeed[i]),
+            torquePercent: this.results.torque[i],
+            powerTotal: this.results.power[i].total,
+            powerComponents: this.results.power[i],
+            loadFactor: this.results.loadFactors[i]
+        };
+    }
+
+    getSummary() {
+        if (!this.results) return null;
+        return {
+            bankAngleDeg: radiansToDegrees(this.results.bankAngle[0]),
+            loadFactor: this.results.loadFactors[0],
+            minAirspeedKnots: this.results.minAirspeedKnots,
+            maxAirspeedKnots: this.results.maxAirspeedKnots,
+            minTorque: this.results.minTorque,
+            maxTorque: this.results.maxTorque,
+            groundSpeedKnots: this.conditions.groundSpeed,
+            turnRadiusM: this.conditions.turnRadius,
+            windSpeedKnots: this.conditions.windSpeed
+        };
+    }
+
+    get label() {
+        const wind = this.conditions.windSpeed > 0
+            ? `, Wind ${this.conditions.windSpeed}kt`
+            : ', No Wind';
+        return `${this.preset.name}${wind}`;
+    }
+}
