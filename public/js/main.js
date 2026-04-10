@@ -21,7 +21,6 @@ const airspeedInput = document.getElementById('airspeed');
 const turnDirSelect    = document.getElementById('turn-direction');
 const approachCheck    = document.getElementById('approach-enabled');
 const approachHdgInput = document.getElementById('approach-heading');
-const spiralSweepInput = document.getElementById('spiral-sweep');
 const approachFields   = document.querySelectorAll('.approach-field');
 const addBtn           = document.getElementById('add-simulation');
 const clearBtn      = document.getElementById('clear-all');
@@ -76,9 +75,7 @@ function readConditions() {
         weightLbs:     parseFloat(weightInput.value) || 16000,
         turnDirection: turnDirSelect.value,
         approachEnabled:  approachCheck.checked,
-        approachHeading:  parseFloat(approachHdgInput.value) || 180,
-        spiralSweep:      parseFloat(spiralSweepInput.value) || 360,
-        terminalSpeed:    10
+        approachHeading:  parseFloat(approachHdgInput.value) || 180
     };
 }
 

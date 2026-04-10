@@ -1,5 +1,5 @@
 import { getPreset } from './helicopterPresets.js';
-import { runFullOrbit, runApproachSpiral } from './physics.js';
+import { runFullOrbit, runApproachToPoint } from './physics.js';
 import { msToKnots, radiansToDegrees } from './utils.js';
 
 let nextId = 1;
@@ -30,11 +30,9 @@ export class SimulationInstance {
         };
 
         if (this.conditions.approachEnabled) {
-            this.results = runApproachSpiral({
+            this.results = runApproachToPoint({
                 ...cfg,
-                approachHeadingDeg: this.conditions.approachHeading || 180,
-                spiralSweepDeg: this.conditions.spiralSweep || 360,
-                terminalSpeedKnots: this.conditions.terminalSpeed || 10
+                approachHeadingDeg: this.conditions.approachHeading || 180
             });
         } else {
             this.results = runFullOrbit(cfg);

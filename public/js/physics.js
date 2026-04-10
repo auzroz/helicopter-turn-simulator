@@ -244,10 +244,11 @@ export function runFullOrbit(config) {
     return results;
 }
 
-// Run an orbit followed by a spiral approach to the center point.
-// The helicopter orbits until reaching approachHeadingDeg, then tightens
-// the turn inward while decelerating to near-hover.
-export function runApproachSpiral(config) {
+// Run an orbit followed by a straight-in approach to the center point.
+// The helicopter orbits until reaching a break point near the approach
+// heading, then turns to the inbound heading and flies straight to the
+// point while decelerating to near-hover.
+export function runApproachToPoint(config) {
     const {
         weightLbs,
         headingDeg,
@@ -257,8 +258,6 @@ export function runApproachSpiral(config) {
         airspeedKnots,
         turnDirection,
         approachHeadingDeg,
-        spiralSweepDeg,
-        terminalSpeedKnots,
         rotor,
         airframe,
         performance
@@ -269,25 +268,38 @@ export function runApproachSpiral(config) {
     const wind = windComponents(windSpeedKnots, windDirectionDeg);
     const dir  = turnDirection === 'right' ? -1 : 1;
 
-    const headingRad = degreesToRadians(headingDeg);
-    const entryPsi = Math.atan2(dir * Math.cos(headingRad), -dir * Math.sin(headingRad));
-
+    const headingRad  = degreesToRadians(headingDeg);
     const approachRad = degreesToRadians(approachHeadingDeg);
-    const approachPsi = Math.atan2(dir * Math.cos(approachRad), -dir * Math.sin(approachRad));
+    const entryPsi    = Math.atan2(dir * Math.cos(headingRad), -dir * Math.sin(headingRad));
 
-    // Compute orbit angular distance from entry to approach heading
+    // Approach start: the point on the orbit where the inbound line to
+    // center begins. At this psi, heading toward center = approachHeadingDeg.
+    // Vector from position to center has heading psi + PI, so psi = approachRad - PI.
+    const approachPsi = approachRad - Math.PI;
+
+    // Orbit angular distance from entry to break point
     let orbitSweep = (entryPsi - approachPsi) * dir;
     while (orbitSweep <= 0) orbitSweep += 2 * Math.PI;
-    if (orbitSweep < degreesToRadians(10)) orbitSweep += 2 * Math.PI; // minimum orbit
+    if (orbitSweep < degreesToRadians(10)) orbitSweep += 2 * Math.PI;
 
-    const spiralSweep = degreesToRadians(spiralSweepDeg || 360);
-    const terminalSpeed = knotsToMs(terminalSpeedKnots || 10);
-    const terminalRadius = 5; // meters, avoids singularity
-
-    const dpsi = degreesToRadians(1); // 1 degree per step
+    const dpsi = degreesToRadians(1);
     const orbitSteps = Math.round(orbitSweep / dpsi);
-    const spiralSteps = Math.round(spiralSweep / dpsi);
-    const numSteps = orbitSteps + spiralSteps;
+
+    // Straight-in: from break point on circle to center, distance = turnRadiusM
+    const straightSteps = 180;
+    const stepDist = turnRadiusM / straightSteps;
+    const terminalSpeed = knotsToMs(10);
+
+    // Break point position
+    const breakX = turnRadiusM * Math.sin(approachPsi);
+    const breakY = turnRadiusM * Math.cos(approachPsi);
+
+    // Inbound direction unit vector (toward center from break point)
+    const inboundX = -Math.sin(approachPsi);  // = sin(approachRad)... normalized
+    const inboundY = -Math.cos(approachPsi);
+    // Normalize (already unit length since break is on unit circle * R)
+
+    const numSteps = orbitSteps + straightSteps;
 
     const results = {
         numSteps,
@@ -305,57 +317,87 @@ export function runApproachSpiral(config) {
         loadFactors: [],
         power: [],
         torque: [],
-        phase: [],       // 'orbit' or 'approach'
-        radius: [],      // per-step turn radius
-        ias: []          // per-step IAS (knots)
+        phase: [],
+        radius: [],
+        ias: []
     };
 
     let totalTime = 0;
 
-    for (let i = 0; i < numSteps; i++) {
-        const isOrbit = i < orbitSteps;
+    // --- Orbit phase ---
+    for (let i = 0; i < orbitSteps; i++) {
         const psi = entryPsi - dir * i * dpsi;
 
-        // Radius and IAS: constant during orbit, interpolated during approach
-        let r, iasMs;
-        if (isOrbit) {
-            r = turnRadiusM;
-            iasMs = IAS;
-        } else {
-            const t = (i - orbitSteps) / spiralSteps; // 0 to 1
-            r = turnRadiusM * (1 - t) + terminalRadius * t;
-            iasMs = IAS * (1 - t) + terminalSpeed * t;
-        }
-
-        results.x.push(r * Math.sin(psi));
-        results.y.push(r * Math.cos(psi));
+        results.x.push(turnRadiusM * Math.sin(psi));
+        results.y.push(turnRadiusM * Math.cos(psi));
         results.psi.push(psi);
-        results.phase.push(isOrbit ? 'orbit' : 'approach');
-        results.radius.push(r);
-        results.ias.push(msToKnots(iasMs));
-
+        results.phase.push('orbit');
+        results.radius.push(turnRadiusM);
+        results.ias.push(msToKnots(IAS));
         results.groundTrackHeading.push(Math.atan2(-dir * Math.cos(psi), dir * Math.sin(psi)));
 
-        const Vg = groundSpeedFromIAS(iasMs, wind, psi, dir);
+        const Vg = groundSpeedFromIAS(IAS, wind, psi, dir);
         results.groundSpeed.push(Vg);
 
-        const bank = Math.min(bankAngleForTurn(Vg, r), degreesToRadians(60)); // clamp 60°
+        const bank = bankAngleForTurn(Vg, turnRadiusM);
         results.bankAngle.push(bank);
         results.loadFactors.push(loadFactor(bank));
 
         const pwr = powerComponents({
-            weightN: W,
-            airspeedMs: iasMs,
-            bankAngleRad: bank,
-            rotor,
-            airframe,
+            weightN: W, airspeedMs: IAS, bankAngleRad: bank,
+            rotor, airframe,
             maxContinuousPowerKW: performance.maxContinuousPower,
             vneKnots: performance.vne
         });
         results.power.push(pwr);
         results.torque.push(torquePercent(pwr.total, performance.maxContinuousPower, rotor.omega));
 
-        const dt = Vg > 0.1 ? (dpsi * r / Vg) : 1;
+        const dt = Vg > 0.1 ? (dpsi * turnRadiusM / Vg) : 1;
+        results.dt.push(dt);
+        totalTime += dt;
+    }
+
+    // --- Straight-in approach phase ---
+    // Tailwind component along the inbound heading
+    const tailwindComponent = wind.x * Math.sin(approachRad) + wind.y * Math.cos(approachRad);
+
+    for (let i = 0; i < straightSteps; i++) {
+        const t = i / straightSteps; // 0 at break, ~1 at center
+        const dist = turnRadiusM * (1 - t); // distance remaining to center
+
+        // Position: linear interpolation from break point to center
+        const px = breakX + inboundX * turnRadiusM * t;
+        const py = breakY + inboundY * turnRadiusM * t;
+
+        results.x.push(px);
+        results.y.push(py);
+        results.psi.push(approachPsi);
+        results.phase.push('approach');
+        results.radius.push(dist);
+        results.groundTrackHeading.push(approachRad);
+
+        // IAS decreases linearly from cruise to terminal
+        const iasMs = IAS * (1 - t) + terminalSpeed * t;
+        results.ias.push(msToKnots(iasMs));
+
+        // Ground speed = IAS + tailwind (straight flight)
+        const Vg = Math.max(0.5, iasMs + tailwindComponent);
+        results.groundSpeed.push(Vg);
+
+        // Straight flight: no bank
+        results.bankAngle.push(0);
+        results.loadFactors.push(1);
+
+        const pwr = powerComponents({
+            weightN: W, airspeedMs: iasMs, bankAngleRad: 0,
+            rotor, airframe,
+            maxContinuousPowerKW: performance.maxContinuousPower,
+            vneKnots: performance.vne
+        });
+        results.power.push(pwr);
+        results.torque.push(torquePercent(pwr.total, performance.maxContinuousPower, rotor.omega));
+
+        const dt = Vg > 0.1 ? (stepDist / Vg) : 1;
         results.dt.push(dt);
         totalTime += dt;
     }
