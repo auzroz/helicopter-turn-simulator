@@ -21,12 +21,14 @@ export function windComponents(windSpeedKnots, windDirectionDeg) {
 }
 
 // Solve for ground speed at azimuth psi given constant IAS and wind.
-// The aircraft flies a circular ground track; ground velocity is tangent to circle.
+// The aircraft flies a circular ground track; direction determines tangent.
+// dir = 1 for left (CCW), -1 for right (CW).
 // Returns ground speed in m/s (positive), or 0 if IAS < crosswind component.
-export function groundSpeedFromIAS(iasMps, wind, psi) {
-    // Ground track tangent direction (CCW / left turn)
-    const tx = Math.cos(psi);
-    const ty = -Math.sin(psi);
+export function groundSpeedFromIAS(iasMps, wind, psi, dir) {
+    // Ground track tangent direction
+    // CCW (left): (-cos(psi), sin(psi)).  CW (right): (cos(psi), -sin(psi)).
+    const tx = -dir * Math.cos(psi);
+    const ty = dir * Math.sin(psi);
 
     // Component of wind along the track direction
     const h = tx * wind.x + ty * wind.y;
@@ -123,6 +125,7 @@ export function runFullOrbit(config) {
         windSpeedKnots,
         turnRadiusM,
         airspeedKnots,
+        turnDirection,   // 'left' or 'right'
         rotor,
         airframe,
         performance
@@ -132,10 +135,15 @@ export function runFullOrbit(config) {
     const IAS = knotsToMs(airspeedKnots);
     const wind = windComponents(windSpeedKnots, windDirectionDeg);
 
-    // Entry azimuth: if the aircraft enters heading H (nav degrees),
-    // and ground track tangent heading at psi is (psi + 90°),
-    // then entry psi = H - 90° (in radians).
-    const entryPsi = degreesToRadians(headingDeg) - Math.PI / 2;
+    // dir = 1 for left (CCW on canvas), -1 for right (CW on canvas)
+    const dir = turnDirection === 'right' ? -1 : 1;
+
+    // Entry azimuth: solve for psi such that tangent heading matches entry heading.
+    // Tangent heading = atan2(-dir*cos(psi), dir*sin(psi))
+    // For left (dir=1):  psi = atan2(cos(H), -sin(H))
+    // For right (dir=-1): psi = atan2(-cos(H), sin(H)) = H - PI/2 in radians
+    const headingRad = degreesToRadians(headingDeg);
+    const entryPsi = Math.atan2(dir * Math.cos(headingRad), -dir * Math.sin(headingRad));
 
     const numSteps = 360;
     const dpsi = (2 * Math.PI) / numSteps;
@@ -161,7 +169,8 @@ export function runFullOrbit(config) {
     let totalTime = 0;
 
     for (let i = 0; i < numSteps; i++) {
-        const psi = entryPsi + i * dpsi;
+        // Step psi: negative for left (CCW), positive for right (CW)
+        const psi = entryPsi - dir * i * dpsi;
 
         // Position on ground circle
         results.x.push(turnRadiusM * Math.sin(psi));
@@ -169,11 +178,10 @@ export function runFullOrbit(config) {
         results.psi.push(psi);
 
         // Ground track heading (nav convention: CW from north)
-        // Tangent direction (cos(psi), -sin(psi)) → heading = atan2(cos(psi), -sin(psi))
-        results.groundTrackHeading.push(Math.atan2(Math.cos(psi), -Math.sin(psi)));
+        results.groundTrackHeading.push(Math.atan2(-dir * Math.cos(psi), dir * Math.sin(psi)));
 
         // Ground speed from constant IAS + wind
-        const Vg = groundSpeedFromIAS(IAS, wind, psi);
+        const Vg = groundSpeedFromIAS(IAS, wind, psi, dir);
         results.groundSpeed.push(Vg);
 
         // Bank angle varies with ground speed

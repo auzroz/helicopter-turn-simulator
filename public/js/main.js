@@ -17,6 +17,7 @@ const windDirInput  = document.getElementById('wind-direction');
 const windSpdInput  = document.getElementById('wind-speed');
 const radiusInput   = document.getElementById('turn-radius');
 const airspeedInput = document.getElementById('airspeed');
+const turnDirSelect = document.getElementById('turn-direction');
 const addBtn        = document.getElementById('add-simulation');
 const clearBtn      = document.getElementById('clear-all');
 const placeholder   = document.getElementById('sidebar-placeholder');
@@ -51,7 +52,8 @@ function readConditions() {
         windSpeed:     parseFloat(windSpdInput.value) || 0,
         turnRadius:    parseFloat(radiusInput.value) || 500,
         airspeed:      parseFloat(airspeedInput.value) || 60,
-        weightLbs:     parseFloat(weightInput.value) || 16000
+        weightLbs:     parseFloat(weightInput.value) || 16000,
+        turnDirection: turnDirSelect.value
     };
 }
 

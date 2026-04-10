@@ -90,6 +90,10 @@ header h1 {
     width: 220px;
 }
 
+.setup-group select#turn-direction {
+    width: 100px;
+}
+
 .setup-group input:focus,
 .setup-group select:focus {
     outline: none;

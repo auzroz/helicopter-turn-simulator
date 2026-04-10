@@ -23,6 +23,7 @@ export class SimulationInstance {
             windSpeedKnots: this.conditions.windSpeed,
             turnRadiusM: this.conditions.turnRadius,
             airspeedKnots: this.conditions.airspeed,
+            turnDirection: this.conditions.turnDirection || 'left',
             rotor: this.preset.rotor,
             airframe: this.preset.airframe,
             performance: this.preset.performance
