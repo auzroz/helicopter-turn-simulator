@@ -94,17 +94,36 @@ function drawCompassRose(ctx, cx, cy, radius) {
 function drawFlightPath(ctx, sim, cx, cy, scale) {
     const { x, y, torque } = sim.results;
     const n = x.length;
+    const isApproach = sim.results.isApproach;
 
     // Draw path segments colored by torque
-    for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
+    for (let i = 0; i < n - 1; i++) {
+        const j = i + 1;
         const t = torque[i];
         ctx.strokeStyle = torqueColor(t, sim.color);
         ctx.lineWidth = 2;
+
+        // Dashed line during approach phase
+        if (isApproach && sim.results.phase[i] === 'approach') {
+            ctx.setLineDash([4, 4]);
+        } else {
+            ctx.setLineDash([]);
+        }
+
         ctx.beginPath();
-        // Canvas: x goes right, y goes down. We map sim x→right, sim y→up.
         ctx.moveTo(cx + x[i] * scale, cy - y[i] * scale);
         ctx.lineTo(cx + x[j] * scale, cy - y[j] * scale);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // For continuous orbit (not approach), draw closing segment
+    if (!isApproach && n > 1) {
+        ctx.strokeStyle = torqueColor(torque[n - 1], sim.color);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx + x[n - 1] * scale, cy - y[n - 1] * scale);
+        ctx.lineTo(cx + x[0] * scale, cy - y[0] * scale);
         ctx.stroke();
     }
 }

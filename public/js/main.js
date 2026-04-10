@@ -2,6 +2,7 @@ import { getAllPresets, getPreset } from './helicopterPresets.js';
 import { SimulationManager } from './simulationManager.js';
 import { drawScene } from './rendererCanvas.js';
 import { drawTorqueGauge, drawBankGauge, drawAirspeedGauge } from './rendererGauges.js';
+import { updateExplainerPanel, clearExplainerPanel } from './rendererExplainer.js';
 import { MAX_SIMULATIONS } from './utils.js';
 
 const manager = new SimulationManager();
@@ -17,10 +18,30 @@ const windDirInput  = document.getElementById('wind-direction');
 const windSpdInput  = document.getElementById('wind-speed');
 const radiusInput   = document.getElementById('turn-radius');
 const airspeedInput = document.getElementById('airspeed');
-const turnDirSelect = document.getElementById('turn-direction');
-const addBtn        = document.getElementById('add-simulation');
+const turnDirSelect    = document.getElementById('turn-direction');
+const approachCheck    = document.getElementById('approach-enabled');
+const approachHdgInput = document.getElementById('approach-heading');
+const spiralSweepInput = document.getElementById('spiral-sweep');
+const approachFields   = document.querySelectorAll('.approach-field');
+const addBtn           = document.getElementById('add-simulation');
 const clearBtn      = document.getElementById('clear-all');
-const placeholder   = document.getElementById('sidebar-placeholder');
+const placeholder      = document.getElementById('sidebar-placeholder');
+const explainerToggle  = document.getElementById('explainer-toggle');
+const explainerContent = document.getElementById('explainer-content');
+
+// Explainer panel toggle
+let explainerOpen = false;
+explainerToggle.addEventListener('click', () => {
+    explainerOpen = !explainerOpen;
+    explainerContent.classList.toggle('collapsed', !explainerOpen);
+    explainerToggle.textContent = explainerOpen ? 'Physics Breakdown \u25bc' : 'Physics Breakdown \u25b6';
+});
+
+// Toggle approach mode fields visibility
+approachCheck.addEventListener('change', () => {
+    const show = approachCheck.checked;
+    approachFields.forEach(el => el.style.display = show ? '' : 'none');
+});
 
 // Populate helicopter type dropdown
 function populatePresets() {
@@ -53,7 +74,11 @@ function readConditions() {
         turnRadius:    parseFloat(radiusInput.value) || 500,
         airspeed:      parseFloat(airspeedInput.value) || 60,
         weightLbs:     parseFloat(weightInput.value) || 16000,
-        turnDirection: turnDirSelect.value
+        turnDirection: turnDirSelect.value,
+        approachEnabled:  approachCheck.checked,
+        approachHeading:  parseFloat(approachHdgInput.value) || 180,
+        spiralSweep:      parseFloat(spiralSweepInput.value) || 360,
+        terminalSpeed:    10
     };
 }
 
@@ -70,11 +95,21 @@ function createSimCard(sim) {
     title.className = 'sim-card-title';
     title.textContent = sim.label;
     title.style.color = sim.color;
+    header.appendChild(title);
+
+    if (sim.conditions.approachEnabled) {
+        const replayBtn = document.createElement('button');
+        replayBtn.className = 'sim-replay-btn';
+        replayBtn.textContent = '\u21bb';
+        replayBtn.title = 'Replay';
+        replayBtn.onclick = () => manager.restartSimulation(sim.id);
+        header.appendChild(replayBtn);
+    }
+
     const removeBtn = document.createElement('button');
     removeBtn.className = 'sim-remove-btn';
     removeBtn.textContent = '\u00d7';
     removeBtn.onclick = () => removeSim(sim.id);
-    header.appendChild(title);
     header.appendChild(removeBtn);
     card.appendChild(header);
 
@@ -167,10 +202,19 @@ function updateAddButton() {
 }
 
 // Animation callback — called every frame by the manager
+let lastExplainerUpdate = 0;
 manager.onUpdate = (simulations) => {
     drawScene(canvas, simulations);
     for (const sim of simulations) {
         updateSimCard(sim);
+    }
+    // Throttle explainer DOM updates to ~10fps
+    if (explainerOpen) {
+        const now = performance.now();
+        if (now - lastExplainerUpdate > 100) {
+            updateExplainerPanel(explainerContent, simulations);
+            lastExplainerUpdate = now;
+        }
     }
 };
 
@@ -193,6 +237,7 @@ clearBtn.addEventListener('click', () => {
         entry.card.remove();
     }
     simCards.clear();
+    clearExplainerPanel();
     updateAddButton();
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);

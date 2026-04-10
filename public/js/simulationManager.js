@@ -28,6 +28,15 @@ export class SimulationManager {
         if (this.simulations.length === 0) this.stop();
     }
 
+    restartSimulation(id) {
+        const sim = this.simulations.find(s => s.id === id);
+        if (sim) {
+            sim.restart();
+            this.accumulators.set(id, 0);
+            if (!this.animationId) this.start();
+        }
+    }
+
     clearAll() {
         this.stop();
         this.simulations = [];

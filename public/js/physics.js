@@ -243,3 +243,132 @@ export function runFullOrbit(config) {
 
     return results;
 }
+
+// Run an orbit followed by a spiral approach to the center point.
+// The helicopter orbits until reaching approachHeadingDeg, then tightens
+// the turn inward while decelerating to near-hover.
+export function runApproachSpiral(config) {
+    const {
+        weightLbs,
+        headingDeg,
+        windDirectionDeg,
+        windSpeedKnots,
+        turnRadiusM,
+        airspeedKnots,
+        turnDirection,
+        approachHeadingDeg,
+        spiralSweepDeg,
+        terminalSpeedKnots,
+        rotor,
+        airframe,
+        performance
+    } = config;
+
+    const W    = lbsToNewtons(weightLbs);
+    const IAS  = knotsToMs(airspeedKnots);
+    const wind = windComponents(windSpeedKnots, windDirectionDeg);
+    const dir  = turnDirection === 'right' ? -1 : 1;
+
+    const headingRad = degreesToRadians(headingDeg);
+    const entryPsi = Math.atan2(dir * Math.cos(headingRad), -dir * Math.sin(headingRad));
+
+    const approachRad = degreesToRadians(approachHeadingDeg);
+    const approachPsi = Math.atan2(dir * Math.cos(approachRad), -dir * Math.sin(approachRad));
+
+    // Compute orbit angular distance from entry to approach heading
+    let orbitSweep = (entryPsi - approachPsi) * dir;
+    while (orbitSweep <= 0) orbitSweep += 2 * Math.PI;
+    if (orbitSweep < degreesToRadians(10)) orbitSweep += 2 * Math.PI; // minimum orbit
+
+    const spiralSweep = degreesToRadians(spiralSweepDeg || 360);
+    const terminalSpeed = knotsToMs(terminalSpeedKnots || 10);
+    const terminalRadius = 5; // meters, avoids singularity
+
+    const dpsi = degreesToRadians(1); // 1 degree per step
+    const orbitSteps = Math.round(orbitSweep / dpsi);
+    const spiralSteps = Math.round(spiralSweep / dpsi);
+    const numSteps = orbitSteps + spiralSteps;
+
+    const results = {
+        numSteps,
+        dt: [],
+        totalTime: 0,
+        turnRadiusM,
+        wind,
+        airspeedKnots,
+        isApproach: true,
+        approachStartStep: orbitSteps,
+        x: [], y: [], psi: [],
+        groundSpeed: [],
+        groundTrackHeading: [],
+        bankAngle: [],
+        loadFactors: [],
+        power: [],
+        torque: [],
+        phase: [],       // 'orbit' or 'approach'
+        radius: [],      // per-step turn radius
+        ias: []          // per-step IAS (knots)
+    };
+
+    let totalTime = 0;
+
+    for (let i = 0; i < numSteps; i++) {
+        const isOrbit = i < orbitSteps;
+        const psi = entryPsi - dir * i * dpsi;
+
+        // Radius and IAS: constant during orbit, interpolated during approach
+        let r, iasMs;
+        if (isOrbit) {
+            r = turnRadiusM;
+            iasMs = IAS;
+        } else {
+            const t = (i - orbitSteps) / spiralSteps; // 0 to 1
+            r = turnRadiusM * (1 - t) + terminalRadius * t;
+            iasMs = IAS * (1 - t) + terminalSpeed * t;
+        }
+
+        results.x.push(r * Math.sin(psi));
+        results.y.push(r * Math.cos(psi));
+        results.psi.push(psi);
+        results.phase.push(isOrbit ? 'orbit' : 'approach');
+        results.radius.push(r);
+        results.ias.push(msToKnots(iasMs));
+
+        results.groundTrackHeading.push(Math.atan2(-dir * Math.cos(psi), dir * Math.sin(psi)));
+
+        const Vg = groundSpeedFromIAS(iasMs, wind, psi, dir);
+        results.groundSpeed.push(Vg);
+
+        const bank = Math.min(bankAngleForTurn(Vg, r), degreesToRadians(60)); // clamp 60°
+        results.bankAngle.push(bank);
+        results.loadFactors.push(loadFactor(bank));
+
+        const pwr = powerComponents({
+            weightN: W,
+            airspeedMs: iasMs,
+            bankAngleRad: bank,
+            rotor,
+            airframe,
+            maxContinuousPowerKW: performance.maxContinuousPower,
+            vneKnots: performance.vne
+        });
+        results.power.push(pwr);
+        results.torque.push(torquePercent(pwr.total, performance.maxContinuousPower, rotor.omega));
+
+        const dt = Vg > 0.1 ? (dpsi * r / Vg) : 1;
+        results.dt.push(dt);
+        totalTime += dt;
+    }
+
+    results.totalTime = totalTime;
+
+    const banksDeg = results.bankAngle.map(b => b * 180 / Math.PI);
+    results.minBankDeg = Math.min(...banksDeg);
+    results.maxBankDeg = Math.max(...banksDeg);
+    results.minGroundSpeedKnots = msToKnots(Math.min(...results.groundSpeed));
+    results.maxGroundSpeedKnots = msToKnots(Math.max(...results.groundSpeed));
+    results.minTorque = Math.min(...results.torque);
+    results.maxTorque = Math.max(...results.torque);
+
+    return results;
+}
